@@ -4,6 +4,11 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_OVERPASS = 'https://overpass-api.de/api/interpreter';
+const DEFAULT_OVERPASS_FALLBACKS = [
+  DEFAULT_OVERPASS,
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.nchc.org.tw/api/interpreter',
+];
 const DEFAULT_OURAIRPORTS = 'https://ourairports.com/data/airports.csv';
 
 let opencc = null;
@@ -19,6 +24,7 @@ function parseArgs(argv) {
     out: null,
     version: null,
     overpass: process.env.OVERPASS_URL || DEFAULT_OVERPASS,
+    overpassList: process.env.OVERPASS_URLS || '',
     ourairports: process.env.OURAIRPORTS_URL || DEFAULT_OURAIRPORTS,
     cache: null,
   };
@@ -34,6 +40,10 @@ function parseArgs(argv) {
     }
     if (arg === '--overpass') {
       args.overpass = argv[++i];
+      continue;
+    }
+    if (arg === '--overpass-list') {
+      args.overpassList = argv[++i];
       continue;
     }
     if (arg === '--ourairports') {
@@ -240,7 +250,24 @@ function toAirportEntry(element, countryLangMap, ourIndex) {
   };
 }
 
-async function fetchOverpass(overpass) {
+function buildOverpassList(args) {
+  if (args.overpassList) {
+    return args.overpassList
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (args.overpass) {
+    return [args.overpass];
+  }
+  return DEFAULT_OVERPASS_FALLBACKS.slice();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchOverpassOnce(overpass) {
   const query = `
     [out:json][timeout:180];
     (
@@ -259,10 +286,38 @@ async function fetchOverpass(overpass) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Overpass error ${response.status}: ${text}`);
+    const err = new Error(`Overpass error ${response.status}: ${text}`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
+}
+
+async function fetchOverpass(overpassList) {
+  const maxRetries = Number(process.env.OVERPASS_RETRIES || 3);
+  const retryBaseMs = Number(process.env.OVERPASS_RETRY_BASE_MS || 1500);
+
+  for (const endpoint of overpassList) {
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await fetchOverpassOnce(endpoint);
+      } catch (err) {
+        const status = err?.status;
+        const retryable = status === 429 || status === 504 || !status;
+        if (!retryable || attempt >= maxRetries) {
+          if (attempt >= maxRetries) {
+            console.warn(`Overpass failed after ${attempt + 1} attempts: ${endpoint}`);
+          }
+          break;
+        }
+        const delay = retryBaseMs * Math.pow(2, attempt);
+        console.warn(`Overpass retry ${attempt + 1}/${maxRetries} on ${endpoint} after ${delay}ms`);
+        await sleep(delay);
+      }
+    }
+  }
+  throw new Error('All Overpass endpoints failed.');
 }
 
 function buildDataset(elements, countryLangMap, version, ourIndex) {
@@ -300,7 +355,7 @@ async function main() {
     args.cache || path.join(__dirname, '..', 'data', 'ourairports.csv')
   );
   const ourIndex = buildOurAirportsIndex(ourRows);
-  const payload = await fetchOverpass(args.overpass);
+  const payload = await fetchOverpass(buildOverpassList(args));
   const dataset = buildDataset(payload.elements || [], countryLangMap, version, ourIndex);
 
   const outPath = path.resolve(args.out);

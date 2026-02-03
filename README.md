@@ -60,6 +60,9 @@ bash scripts/build.sh 2026-02-03
 Environment variables:
 
 - `OVERPASS_URL` (default: `https://overpass-api.de/api/interpreter`)
+- `OVERPASS_URLS` (comma-separated fallback list)
+- `OVERPASS_RETRIES` (default: `3`)
+- `OVERPASS_RETRY_BASE_MS` (default: `1500`)
 - `OURAIRPORTS_URL` (default: `https://ourairports.com/data/airports.csv`)
 - `DATASET_VERSION` (optional)
 
