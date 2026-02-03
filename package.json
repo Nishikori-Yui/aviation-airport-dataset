@@ -1,0 +1,11 @@
+{
+  "name": "aviation-airport-dataset",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "opencc-js": "^1.0.5"
+  },
+  "scripts": {
+    "build": "node scripts/fetch-overpass.cjs --out data/airports.json"
+  }
+}
