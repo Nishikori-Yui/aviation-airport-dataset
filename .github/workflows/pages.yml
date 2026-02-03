@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (use 'latest' for most recent)"
+        required: false
+        default: "latest"
 
 permissions:
   contents: read
@@ -26,7 +31,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p dist
-          gh release download "${{ github.event.release.tag_name || 'latest' }}" -p "airports.json" -D dist
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          gh release download "$TAG" -p "airports.json" -D dist
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
